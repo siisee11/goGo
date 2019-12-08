@@ -1,0 +1,2 @@
+# goGo
+go lang workspace
