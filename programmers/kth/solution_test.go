@@ -1,32 +1,27 @@
 package kth
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestSolution(t *testing.T) {
 
-	got := Solution([1, 5, 2, 6 ,3, 7, 4], [[2, 5, 3], [4, 4, 1], [1, 7, 3]])
-
-	if got != [5, 6, 3] {
-		t.Errorf("Solution() == %q, want %q", got, [5, 6, 3])
-	}
-
-}
-
-	/*
 	cases := []struct {
-		in1, want int[]
-		in2 int[][]
+		in1, want []int
+		in2       [][]int
 	}{
 		{
-			in1 : [1, 5, 2, 6 ,3, 7, 4], 
-			in2 : [[2, 5, 3], [4, 4, 1], [1, 7, 3]], 
-			want : [5, 6, 3]
+			in1:  []int{1, 5, 2, 6, 3, 7, 4},
+			in2:  [][]int{{2, 5, 3}, {4, 4, 1}, {1, 7, 3}},
+			want: []int{5, 6, 2},
 		},
 	}
 	for _, c := range cases {
-		got := Solution(c.in)
-		if got != c.want {
-			t.Errorf("Solution(%q) == %q, want %q", c.in, got, c.want)
+		got := Solution(c.in1, c.in2)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("\nSolution(%v, %v) == %v, want %v", c.in1, c.in2, got, c.want)
 		}
 	}
-	*/
+
+}
