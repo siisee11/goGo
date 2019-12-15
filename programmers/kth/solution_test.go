@@ -10,6 +10,7 @@ func TestSolution(t *testing.T) {
 		t.Errorf("Solution() == %q, want %q", got, [5, 6, 3])
 	}
 
+}
 
 	/*
 	cases := []struct {
@@ -29,4 +30,3 @@ func TestSolution(t *testing.T) {
 		}
 	}
 	*/
-}
