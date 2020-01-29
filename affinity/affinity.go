@@ -38,20 +38,21 @@ func setAffinity(cpuID int) {
 
 func worker(id int, lock bool) {
 	if lock {
-			setAffinity(id)
+		setAffinity(id)
 	}
 
 	for {
-			fmt.Printf("worker: %d, CPU: %d\n", id, C.sched_getcpu())
-			randSleep()
+		fmt.Printf("worker: %d, CPU: %d\n", id, C.sched_getcpu())
+		randSleep()
 	}
 }
 
 func main() {
 	fmt.Printf("# of CPUs: %d\n", runtime.NumCPU())
 	lock := len(os.Getenv("LOCK")) > 0
+	lock = true
 	for i := 0; i < runtime.NumCPU(); i++ {
-			go worker(i, lock)
+		go worker(i, lock)
 	}
 	time.Sleep(2 * time.Second)
 }
