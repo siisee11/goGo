@@ -50,7 +50,6 @@ func worker(id int, lock bool) {
 func main() {
 	fmt.Printf("# of CPUs: %d\n", runtime.NumCPU())
 	lock := len(os.Getenv("LOCK")) > 0
-	lock = true
 	for i := 0; i < runtime.NumCPU(); i++ {
 		go worker(i, lock)
 	}
