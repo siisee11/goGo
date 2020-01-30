@@ -60,10 +60,8 @@ func setAffinity(cpuID int) {
 }
 
 func putter(wg *sync.WaitGroup, id int, lock bool) {
-	defer func() {
-		TimeTrack(time.Now())
-		wg.Done()
-	}()
+	defer wg.Done()
+	defer TimeTrack(time.Now())
 
 	if lock {
 		setAffinity(id)
@@ -73,7 +71,7 @@ func putter(wg *sync.WaitGroup, id int, lock bool) {
 
 	h := hashtable.CreateHashTable()
 
-	for i := 0; i <= 2000; i++ {
+	for i := 0; i <= 50000; i++ {
 		rand.Seed(time.Now().UnixNano())
 		rand_letters := randSeq(4096)
 		h.Put(rand.Intn(1000), rand_letters)
@@ -81,17 +79,36 @@ func putter(wg *sync.WaitGroup, id int, lock bool) {
 	//	h.Display()
 }
 
+func getter(wg *sync.WaitGroup, id int, lock bool) {
+	defer wg.Done()
+	defer TimeTrack(time.Now())
+
+	if lock {
+		setAffinity(id)
+	}
+
+	fmt.Printf("getter: %d, CPU: %d\n", id, C.sched_getcpu())
+
+	h := hashtable.CreateHashTable()
+
+	for i := 0; i <= 300000; i++ {
+		rand.Seed(time.Now().UnixNano())
+		h.Get(rand.Intn(1000))
+	}
+	//	h.Display()
+}
+
 func main() {
 	var wg sync.WaitGroup
 
+	runtime.GOMAXPROCS(40)
 	fmt.Printf("# of CPUs: %d\n", runtime.NumCPU())
-	//	lock := len(os.Getenv("LOCK")) > 0
 	lock := true
-	//	for i := 0; i < runtime.NumCPU(); i++ {
-	for i := 0; i < 1; i++ {
-		wg.Add(1)
-		go putter(&wg, i, lock)
-	}
+	wg.Add(1)
+	go putter(&wg, 0, lock)
+	wg.Wait()
 
+	wg.Add(1)
+	go getter(&wg, 15, lock)
 	wg.Wait()
 }
