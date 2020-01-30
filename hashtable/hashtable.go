@@ -5,7 +5,7 @@ import "fmt"
 var (
 	minLoadFactor    = 0.25
 	maxLoadFactor    = 0.75
-	defaultTableSize = 3
+	defaultTableSize = 100
 )
 
 type Record struct {
@@ -84,7 +84,7 @@ func (h *HashTable) put(key int, value []byte) bool {
 func (h *HashTable) Put(key int, value []byte) {
 	sizeChanged := h.put(key, value)
 	if sizeChanged {
-		h.checkLoadFactorAndUpdate()
+		//		h.checkLoadFactorAndUpdate()
 	}
 }
 
@@ -151,15 +151,17 @@ func (h *HashTable) checkLoadFactorAndUpdate() {
 	} else {
 		loadFactor := h.getLoadFactor()
 		if loadFactor < minLoadFactor {
-			fmt.Println("** Loadfactor below limit, reducing hashtable size **")
-			hash := createHashTable(len(h.table.records) / 2)
-			for _, record := range h.table.records {
-				for record != nil {
-					hash.put(record.key, record.value)
-					record = record.next
+			/*
+				fmt.Println("** Loadfactor below limit, reducing hashtable size **")
+				hash := createHashTable(len(h.table.records) / 2)
+				for _, record := range h.table.records {
+					for record != nil {
+						hash.put(record.key, record.value)
+						record = record.next
+					}
 				}
-			}
-			h.table = hash.table
+				h.table = hash.table
+			*/
 		} else if loadFactor > maxLoadFactor {
 			fmt.Println("** Loadfactor above limit, increasing hashtable size **")
 			hash := createHashTable(*h.nRecords * 2)

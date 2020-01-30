@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
+	"regexp"
 	"runtime"
 	"sync"
 	"time"
@@ -38,9 +38,20 @@ func randSeq(n int) []byte {
 	return b
 }
 
-func timeTrack(start time.Time, name string) {
+func TimeTrack(start time.Time) {
 	elapsed := time.Since(start)
-	log.Printf("%s took %s", name, elapsed)
+
+	// Skip this function, and fetch the PC and file for its parent.
+	pc, _, _, _ := runtime.Caller(1)
+
+	// Retrieve a function object this functions parent.
+	funcObj := runtime.FuncForPC(pc)
+
+	// Regex to extract just the function name (and not the module path).
+	runtimeFunc := regexp.MustCompile(`^.*\.(.*)$`)
+	name := runtimeFunc.ReplaceAllString(funcObj.Name(), "$1")
+
+	fmt.Println(fmt.Sprintf("%s took %s", name, elapsed))
 }
 
 func setAffinity(cpuID int) {
@@ -49,25 +60,25 @@ func setAffinity(cpuID int) {
 }
 
 func putter(wg *sync.WaitGroup, id int, lock bool) {
+	defer func() {
+		TimeTrack(time.Now())
+		wg.Done()
+	}()
 
 	if lock {
 		setAffinity(id)
 	}
 
-	defer timeTrack(time.Now(), "Putter")
-	defer wg.Done()
-
 	fmt.Printf("putter: %d, CPU: %d\n", id, C.sched_getcpu())
 
-	b := make([]byte, 4096)
-	rand_letters := randSeq(4096)
+	h := hashtable.CreateHashTable()
 
-	for i := 0; i <= 100000; i++ {
+	for i := 0; i <= 2000; i++ {
 		rand.Seed(time.Now().UnixNano())
-		h := hashtable.CreateHashTable()
-		h.Put(1, b)
-		h.Put(2, rand_letters)
+		rand_letters := randSeq(4096)
+		h.Put(rand.Intn(1000), rand_letters)
 	}
+	//	h.Display()
 }
 
 func main() {
@@ -76,12 +87,11 @@ func main() {
 	fmt.Printf("# of CPUs: %d\n", runtime.NumCPU())
 	//	lock := len(os.Getenv("LOCK")) > 0
 	lock := true
-	for i := 0; i < runtime.NumCPU(); i++ {
+	//	for i := 0; i < runtime.NumCPU(); i++ {
+	for i := 0; i < 1; i++ {
 		wg.Add(1)
 		go putter(&wg, i, lock)
 	}
 
 	wg.Wait()
-	//	time.Sleep(2 * time.Second)
-
 }
