@@ -1,16 +1,5 @@
 package main
 
-import (
-	"fmt"
-	"math/rand"
-	"regexp"
-	"runtime"
-	"sync"
-	"time"
-
-	"github.com/siisee11/goGo/hashtable"
-)
-
 /*
 #define _GNU_SOURCE
 #include <sched.h>
@@ -27,6 +16,20 @@ void lock_thread(int cpuid) {
 }
 */
 import "C"
+import (
+	"fmt"
+	"math/rand"
+	"regexp"
+	"runtime"
+	"sync"
+	"time"
+
+	"github.com/siisee11/goGo/hashtable"
+	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/plotter"
+	"gonum.org/v1/plot/plotutil"
+	"gonum.org/v1/plot/vg"
+)
 
 var letters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
@@ -96,6 +99,11 @@ func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool) {
 func main() {
 	var wg sync.WaitGroup
 
+	p, err := plot.New()
+	if err != nil {
+		panic(err)
+	}
+
 	h := hashtable.CreateHashTable()
 
 	runtime.GOMAXPROCS(40)
@@ -108,4 +116,35 @@ func main() {
 	wg.Add(1)
 	go getter(&wg, 15, h, lock)
 	wg.Wait()
+
+	p.Title.Text = "NUMA latency"
+	p.X.Label.Text = "iter"
+	p.Y.Label.Text = "latency"
+
+	err = plotutil.AddLinePoints(p,
+		"First", randomPoints(15),
+		"Second", randomPoints(15),
+		"Third", randomPoints(15))
+	if err != nil {
+		panic(err)
+	}
+
+	// Save the plot to a PNG file.
+	if err := p.Save(4*vg.Inch, 4*vg.Inch, "points.png"); err != nil {
+		panic(err)
+	}
+}
+
+// randomPoints returns some random x, y points.
+func randomPoints(n int) plotter.XYs {
+	pts := make(plotter.XYs, n)
+	for i := range pts {
+		if i == 0 {
+			pts[i].X = rand.Float64()
+		} else {
+			pts[i].X = pts[i-1].X + rand.Float64()
+		}
+		pts[i].Y = pts[i].X + 10*rand.Float64()
+	}
+	return pts
 }
