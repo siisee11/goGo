@@ -59,7 +59,7 @@ func setAffinity(cpuID int) {
 	C.lock_thread(C.int(cpuID))
 }
 
-func putter(wg *sync.WaitGroup, id int, lock bool) {
+func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool) {
 	defer wg.Done()
 	defer TimeTrack(time.Now())
 
@@ -69,17 +69,14 @@ func putter(wg *sync.WaitGroup, id int, lock bool) {
 
 	fmt.Printf("putter: %d, CPU: %d\n", id, C.sched_getcpu())
 
-	h := hashtable.CreateHashTable()
-
-	for i := 0; i <= 50000; i++ {
+	for i := 0; i <= 25000; i++ {
 		rand.Seed(time.Now().UnixNano())
 		rand_letters := randSeq(4096)
-		h.Put(rand.Intn(1000), rand_letters)
+		h.Put(rand.Intn(1000000), rand_letters)
 	}
-	//	h.Display()
 }
 
-func getter(wg *sync.WaitGroup, id int, lock bool) {
+func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool) {
 	defer wg.Done()
 	defer TimeTrack(time.Now())
 
@@ -89,26 +86,26 @@ func getter(wg *sync.WaitGroup, id int, lock bool) {
 
 	fmt.Printf("getter: %d, CPU: %d\n", id, C.sched_getcpu())
 
-	h := hashtable.CreateHashTable()
-
-	for i := 0; i <= 300000; i++ {
+	for i := 0; i <= 3000000; i++ {
 		rand.Seed(time.Now().UnixNano())
-		h.Get(rand.Intn(1000))
+		h.Get(rand.Intn(1000000))
 	}
-	//	h.Display()
+//	h.Display()
 }
 
 func main() {
 	var wg sync.WaitGroup
 
+	h := hashtable.CreateHashTable()
+
 	runtime.GOMAXPROCS(40)
 	fmt.Printf("# of CPUs: %d\n", runtime.NumCPU())
 	lock := true
 	wg.Add(1)
-	go putter(&wg, 0, lock)
+	go putter(&wg, 0, h, lock)
 	wg.Wait()
 
 	wg.Add(1)
-	go getter(&wg, 15, lock)
+	go getter(&wg, 15, h, lock)
 	wg.Wait()
 }
