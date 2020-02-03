@@ -41,7 +41,7 @@ func randSeq(n int) []byte {
 	return b
 }
 
-func TimeTrack(start time.Time) {
+func TimeTrack(start time.Time, ch chan) {
 	elapsed := time.Since(start)
 
 	// Skip this function, and fetch the PC and file for its parent.
@@ -54,7 +54,8 @@ func TimeTrack(start time.Time) {
 	runtimeFunc := regexp.MustCompile(`^.*\.(.*)$`)
 	name := runtimeFunc.ReplaceAllString(funcObj.Name(), "$1")
 
-	fmt.Println(fmt.Sprintf("%s took %s", name, elapsed))
+//	fmt.Println(fmt.Sprintf("%s took %s", name, elapsed))
+	ch <- elapsed
 }
 
 func setAffinity(cpuID int) {
@@ -62,9 +63,9 @@ func setAffinity(cpuID int) {
 	C.lock_thread(C.int(cpuID))
 }
 
-func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool) {
+func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, ch chan) {
 	defer wg.Done()
-	defer TimeTrack(time.Now())
+	defer TimeTrack(time.Now(), ch)
 
 	if lock {
 		setAffinity(id)
@@ -79,9 +80,9 @@ func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool) {
 	}
 }
 
-func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool) {
+func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, ch chan) {
 	defer wg.Done()
-	defer TimeTrack(time.Now())
+	defer TimeTrack(time.Now(), ch)
 
 	if lock {
 		setAffinity(id)
@@ -99,27 +100,45 @@ func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool) {
 func main() {
 	var wg sync.WaitGroup
 
+	/* plot creation */
 	p, err := plot.New()
 	if err != nil {
 		panic(err)
 	}
-
-	h := hashtable.CreateHashTable()
-
-	runtime.GOMAXPROCS(40)
-	fmt.Printf("# of CPUs: %d\n", runtime.NumCPU())
-	lock := true
-	wg.Add(1)
-	go putter(&wg, 0, h, lock)
-	wg.Wait()
-
-	wg.Add(1)
-	go getter(&wg, 15, h, lock)
-	wg.Wait()
-
 	p.Title.Text = "NUMA latency"
 	p.X.Label.Text = "iter"
 	p.Y.Label.Text = "latency"
+	p.Add(plotter.NewGrid())
+
+	h := hashtable.CreateHashTable()
+
+	/* Global state */
+	runtime.GOMAXPROCS(40)
+	fmt.Printf("# of CPUs: %d\n", runtime.NumCPU())
+	lock := true
+
+	getter_time := make(chan string)
+	putter_time := make(chan string)
+
+	/* Test n times */
+	for n := 0 ; n < 2; n++ {
+		/* putter start */
+		wg.Add(1)
+		go putter(&wg, 0, h, lock, putter_time)
+		wg.Wait()
+
+		elapsed := <-putter_time
+		fmt.Println("putter elapsed: ", elapsed)
+
+		/* getter start */
+		wg.Add(1)
+		go getter(&wg, 15, h, lock, getter_time)
+		wg.Wait()
+
+		elapsed := <-getter_time
+		fmt.Println("getter elapsed: ", elapsed)
+	}
+
 
 	err = plotutil.AddLinePoints(p,
 		"First", randomPoints(15),
