@@ -41,7 +41,7 @@ func randSeq(n int) []byte {
 	return b
 }
 
-func TimeTrack(start time.Time, ch chan time.Duration) {
+func timeTrack(start time.Time, ch chan time.Duration) {
 	elapsed := time.Since(start)
 
 	// Skip this function, and fetch the PC and file for its parent.
@@ -65,20 +65,27 @@ func setAffinity(cpuID int) {
 
 func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, key, quit chan int, value chan []byte, ch chan time.Duration) {
 	defer wg.Done()
-	defer TimeTrack(time.Now(), ch)
+	defer timeTrack(time.Now(), ch)
 
 	if lock {
 		setAffinity(id)
 	}
 
+	fmt.Printf("putter: %d, CPU: %d\n", id, C.sched_getcpu())
+
 	for {
-		h.Put(<-key, <-value)
+		select {
+		case key := <-key:
+			h.Put(key, <-value)
+		case <-quit:
+			return
+		}
 	}
 }
 
 func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, ch chan time.Duration) {
 	defer wg.Done()
-	defer TimeTrack(time.Now(), ch)
+	defer timeTrack(time.Now(), ch)
 
 	if lock {
 		setAffinity(id)
@@ -86,7 +93,7 @@ func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, ch cha
 
 	fmt.Printf("getter: %d, CPU: %d\n", id, C.sched_getcpu())
 
-	for i := 0; i <= 30000; i++ {
+	for i := 0; i <= 3000; i++ {
 		rand.Seed(time.Now().UnixNano())
 		h.Get(rand.Intn(1000000))
 	}
@@ -106,11 +113,11 @@ func main() {
 	p.Add(plotter.NewGrid())
 
 	/* Test n times */
-	putter_pts, getter_pts := testNTime(10)
+	putterPts, getterPts := testNTime(1)
 
 	err = plotutil.AddLinePoints(p,
-		"putter", putter_pts,
-		"getter", getter_pts)
+		"putter", putterPts,
+		"getter", getterPts)
 	if err != nil {
 		panic(err)
 	}
@@ -123,8 +130,8 @@ func main() {
 
 // run test N times and returns x, y points.
 func testNTime(n int) (plotter.XYs, plotter.XYs) {
-	getter_pts := make(plotter.XYs, n)
-	putter_pts := make(plotter.XYs, n)
+	getterPts := make(plotter.XYs, n)
+	putterPts := make(plotter.XYs, n)
 	var wg sync.WaitGroup
 
 	/* Global state */
@@ -134,33 +141,56 @@ func testNTime(n int) (plotter.XYs, plotter.XYs) {
 	h := hashtable.CreateHashTable()
 
 	/* channel */
-	getter_time := make(chan time.Duration)
-	putter_time := make(chan time.Duration)
-	key := make(chan int)
-	value := make(chan []byte)
+	getterTime := make(chan time.Duration)
+	putterTime1 := make(chan time.Duration)
+	putterTime2 := make(chan time.Duration)
+	key1 := make(chan int, 10)
+	value1 := make(chan []byte, 10)
+	quit1 := make(chan int, 1)
+	key2 := make(chan int, 10)
+	value2 := make(chan []byte, 10)
+	quit2 := make(chan int, 1)
 
-	for i := range getter_pts {
+	for i := range getterPts {
 
-		/* create key and values */
 		rand.Seed(time.Now().UnixNano())
-		rand_value := randSeq(4096)
-		rand_key := rand.Intn(1000000)
 
-		/* putter start */
+		/* Create putters */
+		go putter(&wg, 1, h, lock, key1, quit1, value1, putterTime1)
 		wg.Add(1)
-		go putter(&wg, 0, h, lock, putter_time)
-		putter_elapsed := <-putter_time
-		putter_pts[i].Y = float64(putter_elapsed) / float64(time.Second)
-		putter_pts[i].X = float64(i)
-		wg.Wait()
+		go putter(&wg, 2, h, lock, key2, quit2, value2, putterTime2)
+		wg.Add(1)
+
+		for n := 0; n < 10; n++ {
+			/* create key and values */
+			randValue := randSeq(4096)
+			randKey := rand.Intn(1000000)
+
+			/* odd key goes to putter1 and even key goes to putter2 */
+			fmt.Printf("[PUT %d]\n", randKey)
+			if randKey%2 == 0 {
+				key2 <- randKey
+				value2 <- randValue
+			} else {
+				key1 <- randKey
+				value1 <- randValue
+			}
+		}
+		quit1 <- 1
+		quit2 <- 1
+		putter1Elapsed := <-putterTime1
+		putterPts[i].Y = float64(putter1Elapsed) / float64(time.Second)
+		putterPts[i].X = float64(i)
+
+		h.Display()
 
 		/* getter start */
 		wg.Add(1)
-		go getter(&wg, 1, h, lock, getter_time)
-		getter_elapsed := <-getter_time
-		getter_pts[i].Y = float64(getter_elapsed) / float64(time.Second)
-		getter_pts[i].X = float64(i)
+		go getter(&wg, 1, h, lock, getterTime)
+		getterElapsed := <-getterTime
+		getterPts[i].Y = float64(getterElapsed) / float64(time.Second)
+		getterPts[i].X = float64(i)
 		wg.Wait()
 	}
-	return putter_pts, getter_pts
+	return putterPts, getterPts
 }
