@@ -64,6 +64,7 @@ func setAffinity(cpuID int) {
 }
 
 func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, key, quit chan int, value chan []byte, ch chan time.Duration) {
+	defer fmt.Println("Putter", id, " Done")
 	defer wg.Done()
 	defer timeTrack(time.Now(), ch)
 
@@ -93,7 +94,7 @@ func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, ch cha
 
 	fmt.Printf("getter: %d, CPU: %d\n", id, C.sched_getcpu())
 
-	for i := 0; i <= 3000; i++ {
+	for i := 0; i <= 500000; i++ {
 		rand.Seed(time.Now().UnixNano())
 		h.Get(rand.Intn(1000000))
 	}
@@ -113,10 +114,11 @@ func main() {
 	p.Add(plotter.NewGrid())
 
 	/* Test n times */
-	putterPts, getterPts := testNTime(1)
+	putter1Pts, putter2Pts, getterPts := numaTestNTime(1)
 
 	err = plotutil.AddLinePoints(p,
-		"putter", putterPts,
+		"putter1", putter1Pts,
+		"putter2", putter2Pts,
 		"getter", getterPts)
 	if err != nil {
 		panic(err)
@@ -129,9 +131,10 @@ func main() {
 }
 
 // run test N times and returns x, y points.
-func testNTime(n int) (plotter.XYs, plotter.XYs) {
+func numaTestNTime(n int) (plotter.XYs, plotter.XYs, plotter.XYs) {
 	getterPts := make(plotter.XYs, n)
-	putterPts := make(plotter.XYs, n)
+	putter1Pts := make(plotter.XYs, n)
+	putter2Pts := make(plotter.XYs, n)
 	var wg sync.WaitGroup
 
 	/* Global state */
@@ -161,13 +164,13 @@ func testNTime(n int) (plotter.XYs, plotter.XYs) {
 		go putter(&wg, 2, h, lock, key2, quit2, value2, putterTime2)
 		wg.Add(1)
 
-		for n := 0; n < 10; n++ {
+		for n := 0; n < 50000; n++ {
 			/* create key and values */
 			randValue := randSeq(4096)
 			randKey := rand.Intn(1000000)
 
 			/* odd key goes to putter1 and even key goes to putter2 */
-			fmt.Printf("[PUT %d]\n", randKey)
+			//			fmt.Printf("[PUT %d]\n", randKey)
 			if randKey%2 == 0 {
 				key2 <- randKey
 				value2 <- randValue
@@ -179,10 +182,12 @@ func testNTime(n int) (plotter.XYs, plotter.XYs) {
 		quit1 <- 1
 		quit2 <- 1
 		putter1Elapsed := <-putterTime1
-		putterPts[i].Y = float64(putter1Elapsed) / float64(time.Second)
-		putterPts[i].X = float64(i)
-
-		h.Display()
+		putter2Elapsed := <-putterTime2
+		putter1Pts[i].Y = float64(putter1Elapsed) / float64(time.Second)
+		putter1Pts[i].X = float64(i)
+		putter2Pts[i].Y = float64(putter2Elapsed) / float64(time.Second)
+		putter2Pts[i].X = float64(i)
+		wg.Wait()
 
 		/* getter start */
 		wg.Add(1)
@@ -192,5 +197,5 @@ func testNTime(n int) (plotter.XYs, plotter.XYs) {
 		getterPts[i].X = float64(i)
 		wg.Wait()
 	}
-	return putterPts, getterPts
+	return putter1Pts, putter2Pts, getterPts
 }
