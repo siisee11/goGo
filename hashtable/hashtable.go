@@ -5,7 +5,7 @@ import "fmt"
 var (
 	minLoadFactor    = 0.25
 	maxLoadFactor    = 0.75
-	defaultTableSize = 100
+	defaultTableSize = 10000
 )
 
 type Record struct {

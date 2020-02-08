@@ -29,6 +29,7 @@ import (
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/plotutil"
 	"gonum.org/v1/plot/vg"
+	"golang.org/x/sys/unix"
 )
 
 var letters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -61,10 +62,14 @@ func timeTrack(start time.Time, ch chan time.Duration) {
 func setAffinity(cpuID int) {
 	runtime.LockOSThread()
 	C.lock_thread(C.int(cpuID))
+
+	var cpuSet unix.CPUSet
+	cpuSet.Zero()
+	cpuSet.Set(cpuID)
+	unix.SchedSetaffinity(0, &cpuSet)
 }
 
-func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, key, quit chan int, value chan []byte, ch chan time.Duration) {
-	defer fmt.Println("Putter", id, " Done")
+func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, key chan int, value chan []byte, ch chan time.Duration) {
 	defer wg.Done()
 	defer timeTrack(time.Now(), ch)
 
@@ -74,17 +79,12 @@ func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, key, q
 
 	fmt.Printf("putter: %d, CPU: %d\n", id, C.sched_getcpu())
 
-	for {
-		select {
-		case key := <-key:
-			h.Put(key, <-value)
-		case <-quit:
-			return
-		}
+	for k := range key {
+		h.Put(k, <-value)
 	}
 }
 
-func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, ch chan time.Duration) {
+func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, key chan int, value chan []byte, ch chan time.Duration) {
 	defer wg.Done()
 	defer timeTrack(time.Now(), ch)
 
@@ -94,11 +94,9 @@ func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, ch cha
 
 	fmt.Printf("getter: %d, CPU: %d\n", id, C.sched_getcpu())
 
-	for i := 0; i <= 500000; i++ {
-		rand.Seed(time.Now().UnixNano())
-		h.Get(rand.Intn(1000000))
+	for k := range key {
+		h.Get(k)
 	}
-	//	h.Display()
 }
 
 func main() {
@@ -108,69 +106,75 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	p.Title.Text = "NUMA latency"
+	p.Title.Text = "NUMA HASH latency"
 	p.X.Label.Text = "iter"
 	p.Y.Label.Text = "latency"
 	p.Add(plotter.NewGrid())
 
 	/* Test n times */
-	putter1Pts, putter2Pts, getterPts := numaTestNTime(1)
+	putterPts, getterPts := testNTime(5, false)
 
 	err = plotutil.AddLinePoints(p,
-		"putter1", putter1Pts,
-		"putter2", putter2Pts,
+		"putter", putterPts,
 		"getter", getterPts)
 	if err != nil {
 		panic(err)
 	}
 
 	// Save the plot to a PNG file.
-	if err := p.Save(4*vg.Inch, 4*vg.Inch, "points.png"); err != nil {
+	if err := p.Save(4*vg.Inch, 4*vg.Inch, "NumaHash.png"); err != nil {
 		panic(err)
 	}
 }
 
 // run test N times and returns x, y points.
-func numaTestNTime(n int) (plotter.XYs, plotter.XYs, plotter.XYs) {
+func testNTime(n int, numa bool) (plotter.XYs, plotter.XYs) {
 	getterPts := make(plotter.XYs, n)
-	putter1Pts := make(plotter.XYs, n)
-	putter2Pts := make(plotter.XYs, n)
+	putterPts := make(plotter.XYs, n)
 	var wg sync.WaitGroup
+
+	/* Cpu set up */
+	var cpu1, cpu2 int
+	if numa {
+		cpu1 = 1
+		cpu2 = 11
+	} else {
+		cpu1 = 1
+		cpu2 = 2
+	}
 
 	/* Global state */
 	runtime.GOMAXPROCS(40)
 	fmt.Printf("# of CPUs: %d\n", runtime.NumCPU())
-	lock := true
-	h := hashtable.CreateHashTable()
 
 	/* channel */
-	getterTime := make(chan time.Duration)
+	getterTime1 := make(chan time.Duration)
+	getterTime2 := make(chan time.Duration)
 	putterTime1 := make(chan time.Duration)
 	putterTime2 := make(chan time.Duration)
-	key1 := make(chan int, 10)
-	value1 := make(chan []byte, 10)
-	quit1 := make(chan int, 1)
-	key2 := make(chan int, 10)
-	value2 := make(chan []byte, 10)
-	quit2 := make(chan int, 1)
 
 	for i := range getterPts {
+		key1 := make(chan int)
+		key2 := make(chan int)
+		value1 := make(chan []byte)
+		value2 := make(chan []byte)
+		h := hashtable.CreateHashTable()
 
 		rand.Seed(time.Now().UnixNano())
 
 		/* Create putters */
-		go putter(&wg, 1, h, lock, key1, quit1, value1, putterTime1)
+		go putter(&wg, cpu1, h, true, key1, value1, putterTime1)
 		wg.Add(1)
-		go putter(&wg, 2, h, lock, key2, quit2, value2, putterTime2)
+		go putter(&wg, cpu2, h, true, key2, value2, putterTime2)
 		wg.Add(1)
 
+		/* Put n times into hash */
 		for n := 0; n < 50000; n++ {
 			/* create key and values */
 			randValue := randSeq(4096)
 			randKey := rand.Intn(1000000)
 
 			/* odd key goes to putter1 and even key goes to putter2 */
-			//			fmt.Printf("[PUT %d]\n", randKey)
 			if randKey%2 == 0 {
 				key2 <- randKey
 				value2 <- randValue
@@ -179,23 +183,54 @@ func numaTestNTime(n int) (plotter.XYs, plotter.XYs, plotter.XYs) {
 				value1 <- randValue
 			}
 		}
-		quit1 <- 1
-		quit2 <- 1
+		/* Close channels */
+		close(key1)
+		close(key2)
+		close(value1)
+		close(value2)
+
+		key1 = make(chan int)
+		key2 = make(chan int)
+		value1 = make(chan []byte)
+		value2 = make(chan []byte)
+
+		/* Calculate elapsed time and plot it */
 		putter1Elapsed := <-putterTime1
 		putter2Elapsed := <-putterTime2
-		putter1Pts[i].Y = float64(putter1Elapsed) / float64(time.Second)
-		putter1Pts[i].X = float64(i)
-		putter2Pts[i].Y = float64(putter2Elapsed) / float64(time.Second)
-		putter2Pts[i].X = float64(i)
+		putterPts[i].Y = ( float64(putter1Elapsed) + float64(putter2Elapsed) ) / float64(time.Second) / 2
+		putterPts[i].X = float64(i)
 		wg.Wait()
 
-		/* getter start */
+		/* Create getters */
+		go getter(&wg, cpu1, h, true, key1, value1, getterTime1)
 		wg.Add(1)
-		go getter(&wg, 1, h, lock, getterTime)
-		getterElapsed := <-getterTime
-		getterPts[i].Y = float64(getterElapsed) / float64(time.Second)
+		go getter(&wg, cpu2, h, true, key2, value2, getterTime2)
+		wg.Add(1)
+
+		/* Get n times from hash */
+		for n := 0; n < 5000000; n++ {
+			/* create search key */
+			randKey := rand.Intn(1000000)
+
+			/* odd key goes to putter1 and even key goes to putter2 */
+			if randKey%2 == 0 {
+				key2 <- randKey
+			} else {
+				key1 <- randKey
+			}
+		}
+		/* Close channels */
+		close(key1)
+		close(key2)
+		close(value1)
+		close(value2)
+
+		/* Calculate elapsed time and plot it */
+		getter1Elapsed := <-getterTime1
+		getter2Elapsed := <-getterTime2
+		getterPts[i].Y = ( float64(getter1Elapsed) + float64(getter2Elapsed) ) / float64(time.Second) / 2
 		getterPts[i].X = float64(i)
 		wg.Wait()
 	}
-	return putter1Pts, putter2Pts, getterPts
+	return putterPts, getterPts
 }

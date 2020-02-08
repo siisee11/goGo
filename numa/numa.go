@@ -73,7 +73,7 @@ func putter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, ch cha
 
 	fmt.Printf("putter: %d, CPU: %d\n", id, C.sched_getcpu())
 
-	for i := 0; i <= 25000; i++ {
+	for i := 0; i <= 3000000; i++ {
 		rand.Seed(time.Now().UnixNano())
 		rand_letters := randSeq(4096)
 		h.Put(rand.Intn(1000000), rand_letters)
@@ -90,7 +90,7 @@ func getter(wg *sync.WaitGroup, id int, h hashtable.HashTable, lock bool, ch cha
 
 	fmt.Printf("getter: %d, CPU: %d\n", id, C.sched_getcpu())
 
-	for i := 0; i <= 30000; i++ {
+	for i := 0; i <= 3000000; i++ {
 		rand.Seed(time.Now().UnixNano())
 		h.Get(rand.Intn(1000000))
 	}
@@ -110,11 +110,17 @@ func main() {
 	p.Add(plotter.NewGrid())
 
 	/* Test n times */
-	putter_pts, getter_pts := testNTime(10)
+//	uma_putter_pts, uma_getter_pts := testNTime(10, 0, 1)
+//	numa_putter_pts, numa_getter_pts := testNTime(10, 3, 13)
+
+	uma_getter_pts, numa_getter_pts := testNTime(5, 0, 1, 13)
+//	_, numa_getter_pts := testNTime(5, 3, 13)
 
 	err = plotutil.AddLinePoints(p,
-		"putter", putter_pts,
-		"getter", getter_pts)
+//		"UMA-putter", uma_putter_pts,
+		"UMA-getter", uma_getter_pts,
+//		"NUMA-putter", numa_putter_pts,
+		"NUMA-getter", numa_getter_pts)
 	if err != nil {
 		panic(err)
 	}
@@ -126,37 +132,45 @@ func main() {
 }
 
 // run test N times and returns x, y points.
-func testNTime(n int) (plotter.XYs, plotter.XYs) {
-	getter_pts := make(plotter.XYs, n)
-	putter_pts := make(plotter.XYs, n)
+func testNTime(n int, cpu1 int, cpu2 int, cpu3 int) (plotter.XYs, plotter.XYs) {
+	numa_getter_pts := make(plotter.XYs, n)
+	uma_getter_pts := make(plotter.XYs, n)
 	var wg sync.WaitGroup
 
 	/* Global state */
 	runtime.GOMAXPROCS(40)
 	fmt.Printf("# of CPUs: %d\n", runtime.NumCPU())
 	lock := true
-	h := hashtable.CreateHashTable()
 
 	/* channel */
-	getter_time := make(chan time.Duration)
+	numa_getter_time := make(chan time.Duration)
+	uma_getter_time := make(chan time.Duration)
 	putter_time := make(chan time.Duration)
 
-	for i := range getter_pts {
+	for i := range numa_getter_pts {
+		h := hashtable.CreateHashTable()
 		/* putter start */
 		wg.Add(1)
-		go putter(&wg, 0, h, lock, putter_time)
+		go putter(&wg, cpu1, h, lock, putter_time)
 		putter_elapsed := <-putter_time
-		putter_pts[i].Y = float64(putter_elapsed) / float64(time.Second)
-		putter_pts[i].X = float64(i)
+		fmt.Println("unused: ", putter_elapsed)
 		wg.Wait()
 
 		/* getter start */
 		wg.Add(1)
-		go getter(&wg, 1, h, lock, getter_time)
-		getter_elapsed := <-getter_time
-		getter_pts[i].Y = float64(getter_elapsed) / float64(time.Second)
-		getter_pts[i].X = float64(i)
+		go getter(&wg, cpu2, h, lock, uma_getter_time)
+		uma_getter_elapsed := <-uma_getter_time
+		uma_getter_pts[i].Y = float64(uma_getter_elapsed) / float64(time.Second)
+		uma_getter_pts[i].X = float64(i)
+		wg.Wait()
+
+		/* numa_getter start */
+		wg.Add(1)
+		go getter(&wg, cpu3, h, lock, numa_getter_time)
+		numa_getter_elapsed := <-numa_getter_time
+		numa_getter_pts[i].Y = float64(numa_getter_elapsed) / float64(time.Second)
+		numa_getter_pts[i].X = float64(i)
 		wg.Wait()
 	}
-	return putter_pts, getter_pts
+	return  uma_getter_pts, numa_getter_pts
 }
