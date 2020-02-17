@@ -122,7 +122,7 @@ func main() {
 	}
 
 	// Save the plot to a PNG file.
-	if err := p.Save(4*vg.Inch, 4*vg.Inch, "NumaHash.png"); err != nil {
+	if err := p.Save(4*vg.Inch, 4*vg.Inch, "NumaHash_UMA.png"); err != nil {
 		panic(err)
 	}
 }
@@ -169,7 +169,7 @@ func testNTime(n int, numa bool) (plotter.XYs, plotter.XYs) {
 		wg.Add(1)
 
 		/* Put n times into hash */
-		for n := 0; n < 50000; n++ {
+		for n := 0; n < 300000; n++ {
 			/* create key and values */
 			randValue := randSeq(4096)
 			randKey := rand.Intn(1000000)
@@ -208,7 +208,7 @@ func testNTime(n int, numa bool) (plotter.XYs, plotter.XYs) {
 		wg.Add(1)
 
 		/* Get n times from hash */
-		for n := 0; n < 5000000; n++ {
+		for n := 0; n < 10000000; n++ {
 			/* create search key */
 			randKey := rand.Intn(1000000)
 
